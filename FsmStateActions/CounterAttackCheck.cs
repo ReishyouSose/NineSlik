@@ -172,13 +172,13 @@ namespace NineSlik.FsmStateActions
             int silk = ns.ParrySilk.Value;
             player.AddSilk(silk, false);
             State = ChargeState.Idle;
+            if (ns.RefreshMoveAbility.Value)
+            {
+                player.airDashed = false;
+                player.doubleJumped = false;
+            }
             if (AllowCounter)
             {
-                if (ns.RefreshMoveAbility.Value)
-                {
-                    player.airDashed = false;
-                    player.doubleJumped = false;
-                }
                 player.AddSilk(silk, false);
                 ComboTimer = 2f;
                 ReadyTimer = 0;

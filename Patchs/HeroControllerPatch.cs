@@ -1,7 +1,9 @@
 ﻿using HarmonyLib;
-using NineSlik.FsmStateActions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection.Emit;
+using UnityEngine;
 
 namespace NineSlik.Patchs
 {
@@ -15,38 +17,103 @@ namespace NineSlik.Patchs
         {
             if (tool.name == NineSilkMod.Parry)
             {
-                __result = true;
+                __result = PlayerData.instance.silk >= CounterAttackCheck.Cost;
                 return false;
             }
             return true;
         }
-        [HarmonyPatch(nameof(HeroController.Awake))]
+        [HarmonyPatch(nameof(HeroController.Start))]
         [HarmonyPostfix]
-        private static void Awake(HeroController __instance)
+        private static void Start(HeroController __instance)
         {
-            if (NineSilkMod.Ins.ForceUnlockParry.Value)
-                PlayerData.instance.hasParry = true;
-            //PlayMakerFSM fsm = __instance.gameObject.LocateMyFSM("Silk Specials");
-            PlayMakerFSM fsm = __instance.silkSpecialFSM;
-            string state = "Parry Start";
-            var fsmState = fsm.FsmStates.First(x => x.Name == state);
-            var list = fsmState.Actions.ToList();
-            var getSilkCost = list[1];
-            var takeSilk = list[2];
-            list.RemoveAt(2);
-            list.RemoveAt(1);
-            list.Insert(0, new ParryStartAction());
-            fsmState.Actions = list.ToArray();
-
-            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Clash");
-            list = fsmState.Actions.ToList();
-            list.Add(new ShouldParrySlashAction());
-            fsmState.Actions = list.ToArray();
-
-            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Recover");
-            list = fsmState.Actions.ToList();
-            list.Add(new ParryRecoverAction());
-            fsmState.Actions = list.ToArray();
+            CounterAttackCheck.Ins = __instance.gameObject.AddComponent<CounterAttackCheck>();
         }
+
+        /*[HarmonyPatch(nameof(HeroController.CheckParry))]
+        [HarmonyTranspiler]
+        private static List<CodeInstruction> CheckParry(IEnumerable<CodeInstruction> codes)
+        {
+            var list = codes.ToList();
+            GetLabel(list, out var label);
+            if (label == null)
+            {
+                Debug.Log("Not found label");
+                return list;
+            }
+            Debug.Log("Parry Match");
+            MatchCode(list, true, label);
+            MatchCode(list, false, label);
+            return list;
+        }
+
+        [HarmonyPatch(nameof(HeroController.TakeDamage))]
+        [HarmonyTranspiler]
+        private static List<CodeInstruction> TakeDamage(IEnumerable<CodeInstruction> codes)
+        {
+            var list = codes.ToList();
+            GetLabel(list, out var label);
+            if (label == null)
+            {
+                Debug.Log("Not found label");
+                return list;
+            }
+            Debug.Log("Damage Match");
+            MatchCode(list, true, label);
+            MatchCode(list, false, label);
+            return list;
+        }
+
+        private static bool CheckDirection(HeroController player, bool right)
+        {
+            if (!ModConfig.Ins.ParryDirection.Value)
+                return true;
+            if (CounterAttackCheck.Ins.AllowCounter)
+                return true;
+            Debug.Log((player.cState.facingRight, right));
+            return player.cState.facingRight == right;
+
+        }
+        private static void GetLabel(List<CodeInstruction> list, out object? label)
+        {
+            label = null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var code = list[i];
+                if (code.opcode != OpCodes.Ldfld)
+                    continue;
+                if (!code.operand.ToString().Contains("parrying"))
+                    continue;
+                label = list[i + 1].operand;
+                return;
+            }
+        }
+        private static void MatchCode(List<CodeInstruction> list, bool right, object label)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                var code = list[i];
+                if (code.opcode != OpCodes.Call)
+                    continue;
+                var oprand = code.operand.ToString();
+                string face = right ? "FaceRight" : "FaceLeft";
+                if (oprand.Contains(face))
+                {
+                    list.InsertRange(i - 1, AddDirIL(right, label));
+                    Debug.Log($"Add dir check {face}");
+                    break;
+                }
+            }
+        }
+        private static List<CodeInstruction> AddDirIL(bool right, object label)
+        {
+            return new List<CodeInstruction>()
+            {
+                new CodeInstruction(OpCodes.Ldarg_0),
+                new CodeInstruction(right ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0),
+                new CodeInstruction(OpCodes.Call,
+                    AccessTools.Method(typeof(HeroControllerPatch),nameof(CheckDirection))),
+                new CodeInstruction(OpCodes.Brfalse_S, label)
+            };
+        }*/
     }
 }

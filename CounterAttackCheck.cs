@@ -1,10 +1,13 @@
-﻿using HutongGames.PlayMaker;
+﻿using GlobalSettings;
+using HutongGames.PlayMaker;
+using NineSlik.FsmStateActions;
+using System;
 using System.Linq;
 using UnityEngine;
 
-namespace NineSlik.FsmStateActions
+namespace NineSlik
 {
-    public class CounterAttackCheck
+    public class CounterAttackCheck : MonoBehaviour
     {
         public static CounterAttackCheck Ins = null!;
         // 蓄力状态枚举
@@ -20,26 +23,42 @@ namespace NineSlik.FsmStateActions
         public float ReadyTimer;
         public float ComboTimer;
 
+        public GameObject Effect = null!;
         public tk2dSpriteAnimator EffectAnim = null!;
-        private GameObject effect = null!;
-        public GameObject Effect
-        {
-            get
-            {
-                if (effect == null)
-                {
-                    var hc = HeroController.instance;
-                    effect = Object.Instantiate(hc.artChargedEffect, hc.transform);
-                    effect.GetComponent<tk2dSprite>().color = new Color(0.5f, 1f, 0.5f, 0.8f);
-                    EffectAnim = effect.GetComponent<tk2dSpriteAnimator>();
-                }
-                return effect;
-            }
-        }
-        private FsmState cross = null!;
-        public FsmState Cross => cross ??= HeroController.instance.silkSpecialFSM.FsmStates.First(x => x.Name == "Parry Cross Slash");
+        public FsmState Cross = null!;
 
         public bool AllowCounter => ReadyTimer > 0 || ComboTimer > 0;
+        public static int Cost => Math.Max(0, ModConfig.Ins.ParryCost.Value - (Gameplay.FleaCharmTool.IsEquippedHud ? 1 : 0));
+        public void Awake()
+        {
+            var hc = HeroController.instance;
+            Effect = Instantiate(hc.artChargedEffect, hc.transform);
+            Effect.GetComponent<tk2dSprite>().color = new Color(0.5f, 1f, 0.5f, 0.8f);
+            EffectAnim = Effect.GetComponent<tk2dSpriteAnimator>();
+            PlayMakerFSM fsm = hc.silkSpecialFSM;
+            Cross = fsm.FsmStates.First(x => x.Name == "Parry Cross Slash");
+            if (ModConfig.Ins.ForceUnlockParry.Value)
+                PlayerData.instance.hasParry = true;
+
+            var fsmState = fsm.FsmStates.First(x => x.Name == "Parry Start");
+            var list = fsmState.Actions.ToList();
+            /*var getSilkCost = list[1]; as GetPlayerDataVariable
+            var takeSilk = list[2]; as TakeSilk*/
+            list[1].Enabled = false;
+            list[2].Enabled = false;
+            list.Insert(0, new ParryStartAction());
+            fsmState.Actions = list.ToArray();
+
+            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Clash");
+            list = fsmState.Actions.ToList();
+            list.Add(new ShouldParrySlashAction());
+            fsmState.Actions = list.ToArray();
+
+            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Recover");
+            list = fsmState.Actions.ToList();
+            list.Add(new ParryRecoverAction());
+            fsmState.Actions = list.ToArray();
+        }
 
         public void Update()
         {
@@ -65,9 +84,28 @@ namespace NineSlik.FsmStateActions
             UpdateEffect(player);
         }
 
+        public bool CheckSilk()
+        {
+            int silk = ModConfig.Ins.ParryCost.Value;
+            if (silk == 0)
+                return true;
+
+            var player = HeroController.instance;
+            var pd = player.playerData;
+            if (Gameplay.FleaCharmTool.IsEquippedHud && pd.health >= pd.CurrentMaxHealth)
+                silk--;
+
+            if (player.playerData.silk >= silk)
+            {
+                player.TakeSilk(silk);
+                return true;
+            }
+            return false;
+        }
         // 开始蓄力
         public void StartCharging()
         {
+            PlayerData.instance.TakeSilk(Cost);
             State = ChargeState.Charging;
             ChargeTimer = 0.5f; // 0.5秒蓄力时间
         }
@@ -152,7 +190,7 @@ namespace NineSlik.FsmStateActions
             else if (!shouldShow && Effect.activeSelf)
             {
                 Effect.SetActive(false);
-                player.audioCtrl.PlaySound(GlobalEnums.HeroSounds.NAIL_ART_READY, false);
+                player.audioCtrl.StopSound(GlobalEnums.HeroSounds.NAIL_ART_READY);
             }
         }
 
@@ -168,11 +206,11 @@ namespace NineSlik.FsmStateActions
         public bool OnParrySuccess()
         {
             var player = HeroController.instance;
-            var ns = NineSilkMod.Ins;
-            int silk = ns.ParrySilk.Value;
+            var config = ModConfig.Ins;
+            int silk = config.ParrySilk.Value;
             player.AddSilk(silk, false);
             State = ChargeState.Idle;
-            if (ns.RefreshMoveAbility.Value)
+            if (config.RefreshMoveAbility.Value)
             {
                 player.airDashed = false;
                 player.doubleJumped = false;

@@ -1,5 +1,4 @@
 ﻿using HarmonyLib;
-using HutongGames.PlayMaker.Actions;
 
 namespace NineSlik.Patchs
 {
@@ -12,7 +11,7 @@ namespace NineSlik.Patchs
         {
             if (__instance.CurrentTool.name == NineSilkMod.Parry)
             {
-                __result = false;
+                __result = CounterAttackCheck.Cost > PlayerData.instance.silk;
                 return false;
             }
             return true;

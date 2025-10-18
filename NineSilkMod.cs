@@ -7,7 +7,7 @@ namespace NineSlik
     public class NineSilkMod : BaseUnityPlugin
     {
         public const string Guid = "Reits.NineSilk";
-        public const string Version = "1.0.1.1";
+        public const string Version = "1.0.1.2";
         public const string Parry = "Parry";
         internal static NineSilkMod Ins = null!;
         public void Awake()

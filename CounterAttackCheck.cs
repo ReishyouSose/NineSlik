@@ -1,5 +1,6 @@
 ﻿using GlobalSettings;
 using HutongGames.PlayMaker;
+using HutongGames.PlayMaker.Actions;
 using NineSlik.FsmStateActions;
 using System;
 using System.Linq;
@@ -10,7 +11,6 @@ namespace NineSlik
     public class CounterAttackCheck : MonoBehaviour
     {
         public static CounterAttackCheck Ins = null!;
-        // 蓄力状态枚举
         public enum ChargeState
         {
             Idle,
@@ -26,6 +26,8 @@ namespace NineSlik
         public GameObject Effect = null!;
         public tk2dSpriteAnimator EffectAnim = null!;
         public FsmState Cross = null!;
+        public Wait Wait = null!;
+        public DecelerateV2 Decelerate = null!;
 
         public bool AllowCounter => ReadyTimer > 0 || ComboTimer > 0;
         public static int Cost => Math.Max(0, ModConfig.Ins.ParryCost.Value - (Gameplay.FleaCharmTool.IsEquippedHud ? 1 : 0));
@@ -49,6 +51,15 @@ namespace NineSlik
             list.Insert(0, new ParryStartAction());
             fsmState.Actions = list.ToArray();
 
+            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Stance");
+            foreach (var action in fsmState.Actions)
+            {
+                if (action is Wait @wait)
+                    Wait = @wait;
+                if (action is DecelerateV2 dc)
+                    Decelerate = dc;
+            }
+
             fsmState = fsm.FsmStates.First(x => x.Name == "Parry Clash");
             list = fsmState.Actions.ToList();
             list.Add(new ShouldParrySlashAction());
@@ -62,6 +73,8 @@ namespace NineSlik
 
         public void Update()
         {
+            if (!ModConfig.Ins.NineSolsMode.Value)
+                return;
             var player = HeroController.instance;
             if (player == null)
                 return;
@@ -102,8 +115,12 @@ namespace NineSlik
             }
             return false;
         }
-        // 开始蓄力
         public void StartCharging()
+        {
+            State = ChargeState.Charging;
+            ChargeTimer = 0.5f; // 0.5秒蓄力时间
+        }
+        public void OnParryStart()
         {
             PlayerData.instance.TakeSilk(Cost);
             State = ChargeState.Charging;
@@ -197,9 +214,10 @@ namespace NineSlik
         private bool CheckMovementInput(HeroController player)
         {
             var input = player.inputHandler.inputActions;
-            return input.DreamNail.IsPressed || input.Dash.IsPressed || input.Left.IsPressed || input.Right.IsPressed
+            return input.DreamNail.IsPressed || input.Dash.IsPressed
+                /*|| input.Left.IsPressed || input.Right.IsPressed*/
                 || input.Jump.IsPressed || input.Taunt.IsPressed || input.SuperDash.IsPressed
-                || input.Cast.IsPressed || input.Attack.IsPressed || input.Evade.IsPressed;
+                || input.Cast.IsPressed || input.Attack.IsPressed /*|| input.Evade.IsPressed*/;
         }
 
         // 当招架成功时调用
@@ -209,6 +227,17 @@ namespace NineSlik
             var config = ModConfig.Ins;
             int silk = config.ParrySilk.Value;
             player.AddSilk(silk, false);
+            if (!config.NineSolsMode.Value)
+            {
+                var pd = player.playerData;
+                int cost = pd.SilkSkillCost;
+                if (pd.silk >= cost)
+                {
+                    player.TakeSilk(cost);
+                    return true;
+                }
+                return false;
+            }
             State = ChargeState.Idle;
             if (config.RefreshMoveAbility.Value)
             {

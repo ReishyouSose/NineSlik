@@ -6,7 +6,7 @@ namespace NineSlik.FsmStateActions
     {
         public override void OnEnter()
         {
-            CounterAttackCheck.Ins.StartCharging();
+            CounterAttackCheck.Ins.OnParryStart();
             Finish();
         }
     }

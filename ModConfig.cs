@@ -9,6 +9,7 @@ namespace NineSlik
         public ConfigEntry<int> ParryCost;
         public ConfigEntry<bool> ForceUnlockParry;
         public ConfigEntry<bool> RefreshMoveAbility;
+        public ConfigEntry<bool> NineSolsMode;
         public ModConfig(ConfigFile file)
         {
             ParrySilk = file.Bind("General", nameof(ParrySilk), 1,
@@ -23,6 +24,8 @@ namespace NineSlik
             RefreshMoveAbility = file.Bind("General", nameof(RefreshMoveAbility), true,
                 "Whether refresh Air Dash and Double Jump after parring success\n" +
                 "是否在格挡成功后刷新空中冲刺和二段跳");
+            NineSolsMode = file.Bind("General", nameof (NineSolsMode), true,
+                "Use parry mode from Nine Sols\n使用九日的格挡模式");
         }
     }
 }

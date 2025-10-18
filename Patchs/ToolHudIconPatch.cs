@@ -11,6 +11,11 @@ namespace NineSlik.Patchs
         {
             if (__instance.CurrentTool.name == NineSilkMod.Parry)
             {
+                if (!ModConfig.Ins.NineSolsMode.Value)
+                {
+                    __result = false;
+                    return false;
+                }
                 __result = CounterAttackCheck.Cost > PlayerData.instance.silk;
                 return false;
             }

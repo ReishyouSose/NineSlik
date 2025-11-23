@@ -22,18 +22,19 @@ namespace NineSlik
         public float ChargeTimer;
         public float ReadyTimer;
         public float ComboTimer;
+        public bool Block;
 
         public GameObject Effect = null!;
         public tk2dSpriteAnimator EffectAnim = null!;
         public FsmState Cross = null!;
-        public Wait Wait = null!;
-        public DecelerateV2 Decelerate = null!;
+        public Rigidbody2D Rigidbody = null!;
 
         public bool AllowCounter => ReadyTimer > 0 || ComboTimer > 0;
         public static int Cost => Math.Max(0, ModConfig.Ins.ParryCost.Value - (Gameplay.FleaCharmTool.IsEquippedHud ? 1 : 0));
         public void Awake()
         {
             var hc = HeroController.instance;
+            Rigidbody = GetComponent<Rigidbody2D>();
             Effect = Instantiate(hc.artChargedEffect, hc.transform);
             Effect.GetComponent<tk2dSprite>().color = new Color(0.5f, 1f, 0.5f, 0.8f);
             EffectAnim = Effect.GetComponent<tk2dSpriteAnimator>();
@@ -46,19 +47,32 @@ namespace NineSlik
             var list = fsmState.Actions.ToList();
             /*var getSilkCost = list[1]; as GetPlayerDataVariable
             var takeSilk = list[2]; as TakeSilk*/
-            list[1].Enabled = false;
-            list[2].Enabled = false;
+            foreach (var action in fsmState.Actions)
+            {
+                if (action is GetPlayerDataVariable pd)
+                {
+                    if (pd.VariableName.Name == "SilkSkillCost")
+                    {
+                        action.Enabled = false;
+                    }
+                }
+                if (action is TakeSilk)
+                    action.Enabled = false;
+            }
+            /*list[1].Enabled = false;
+            list[2].Enabled = false;*/
             list.Insert(0, new ParryStartAction());
             fsmState.Actions = list.ToArray();
 
-            fsmState = fsm.FsmStates.First(x => x.Name == "Parry Stance");
-            foreach (var action in fsmState.Actions)
+            /*fsmState = fsm.FsmStates.First(x => x.Name == "Parry Stance");
+            list = fsmState.Actions.ToList();
+            list[0].Enabled = false;
+            list.Insert(0, new ParryStanceAction()
             {
-                if (action is Wait @wait)
-                    Wait = @wait;
-                if (action is DecelerateV2 dc)
-                    Decelerate = dc;
-            }
+                finishEvent = new FsmEvent("FINISHED"),
+                realTime = false,
+            });
+            fsmState.Actions = list.ToArray();*/
 
             fsmState = fsm.FsmStates.First(x => x.Name == "Parry Clash");
             list = fsmState.Actions.ToList();
@@ -79,9 +93,13 @@ namespace NineSlik
             if (player == null)
                 return;
 
+
             // 分别更新蓄力状态和连击窗口状态
             switch (State)
             {
+                case ChargeState.Idle:
+                    UpdateIdle(player);
+                    break;
                 case ChargeState.Charging:
                     UpdateCharging(player);
                     break;
@@ -97,23 +115,19 @@ namespace NineSlik
             UpdateEffect(player);
         }
 
-        public bool CheckSilk()
+        private void UpdateIdle(HeroController player)
         {
-            int silk = ModConfig.Ins.ParryCost.Value;
-            if (silk == 0)
-                return true;
-
-            var player = HeroController.instance;
-            var pd = player.playerData;
-            if (Gameplay.FleaCharmTool.IsEquippedHud && pd.health >= pd.CurrentMaxHealth)
-                silk--;
-
-            if (player.playerData.silk >= silk)
+            if (Block)
             {
-                player.TakeSilk(silk);
-                return true;
+                if (!player.inputHandler.inputActions.QuickCast.IsPressed)
+                    Block = false;
             }
-            return false;
+            if (Block)
+                return;
+            if (player.inputHandler.inputActions.QuickCast.IsPressed)
+            {
+                StartCharging();
+            }
         }
         public void StartCharging()
         {
@@ -122,19 +136,22 @@ namespace NineSlik
         }
         public void OnParryStart()
         {
-            PlayerData.instance.TakeSilk(Cost);
-            State = ChargeState.Charging;
-            ChargeTimer = 0.5f; // 0.5秒蓄力时间
+            HeroController.instance.TakeSilk(Cost);
+            if (ReadyTimer > 0)
+                ReadyTimer += 0.4f;
+            if (ComboTimer > 0)
+                ComboTimer += 0.4f;
         }
 
         private void UpdateCharging(HeroController player)
         {
             // 检查输入 - 蓄力期间移动就取消
-            if (CheckMovementInput(player))
+            bool onGround = player.cState.onGround;
+            /*if (!onGround && CheckMoveState(player))
             {
                 State = ChargeState.Idle;
                 return;
-            }
+            }*/
 
             // 检查是否还按住招架键
             if (!player.inputHandler.inputActions.QuickCast.IsPressed)
@@ -146,9 +163,10 @@ namespace NineSlik
             // 更新计时器
             ChargeTimer -= Time.deltaTime;
 
-            if (ChargeTimer <= 0)
+            if (ChargeTimer <= 0 && onGround)
             {
                 // 进入反击架势
+                Block = true;
                 State = ChargeState.Ready;
                 ReadyTimer = 2f; // 2秒反击窗口
             }
@@ -162,11 +180,12 @@ namespace NineSlik
                 // 放开招架键，执行允许反击的招架
                 player.ThrowTool(true);
                 State = ChargeState.Idle;
+                Block = false;
                 return;
             }
 
             // 检查输入 - 反击架势期间移动就取消
-            if (CheckMovementInput(player))
+            if (!player.cState.onGround || CheckMoveState(player))
             {
                 ReadyTimer = 0;
                 State = ChargeState.Idle;
@@ -211,12 +230,15 @@ namespace NineSlik
             }
         }
 
-        private bool CheckMovementInput(HeroController player)
+        private bool CheckMoveState(HeroController player)
         {
+            var vel = Rigidbody.linearVelocity;
+            if (vel.y > 0)
+                return true;
             var input = player.inputHandler.inputActions;
             return input.DreamNail.IsPressed || input.Dash.IsPressed
-                /*|| input.Left.IsPressed || input.Right.IsPressed*/
-                || input.Jump.IsPressed || input.Taunt.IsPressed || input.SuperDash.IsPressed
+                || input.Left.IsPressed || input.Right.IsPressed
+               /* || input.Jump.IsPressed*/ || input.Taunt.IsPressed || input.SuperDash.IsPressed
                 || input.Cast.IsPressed || input.Attack.IsPressed /*|| input.Evade.IsPressed*/;
         }
 
